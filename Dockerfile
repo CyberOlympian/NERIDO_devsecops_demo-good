@@ -6,6 +6,9 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 # Set working directory
 WORKDIR /app
 
+# NEW STEP: Upgrade core Python build tools to patch base image vulnerabilities
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel jaraco.context
+
 # Copy and install dependencies securely
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
