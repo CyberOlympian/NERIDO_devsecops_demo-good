@@ -21,8 +21,9 @@ jobs:
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
+          # Dynamically choose the base and head depending on if it's a PR or a direct Push
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head: ${{ github.event.pull_request.head.sha || github.sha }}
           extra_args: --only-verified
 
       - name: Semgrep SAST Scan
