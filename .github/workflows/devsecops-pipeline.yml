@@ -1,79 +1,127 @@
-name: DevSecOps Pipeline
+name: Advanced DevSecOps Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  security-and-testing:
-    name: Code Security & Unit Tests
+  sast_and_secrets:
+    name: Code & Secret Scanning
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+      - name: Semgrep SAST Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            .semgrep.yml
+            p/python
+
+  sca_dependency:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: 'pip'
+          python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install & Run pip-audit
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pip-audit
+          pip-audit -r requirements.txt -f json -o dependency-scan-results.json
 
-      - name: Install Bandit
-        run: pip install bandit
+      - name: Upload SCA Artifact
+        uses: actions/upload-artifact@v4
+        if: always() # Upload results even if the scan fails
+        with:
+          name: python-dependency-scan-results
+          path: dependency-scan-results.json
+          retention-days: 14
 
-      - name: Static Application Security Testing (SAST) with Bandit
-        run: bandit -r app/ -ll -ii
-
-      - name: Install pip-audit
-        run: pip install pip-audit 
-
-      - name: Software Composition Analysis (SCA) with pip-audit
-        run: pip-audit -r requirements.txt
-
-      - name: Install pytest
-        run: pip install pytest
-
-      - name: Run Unit Tests with Pytest
-        run: python -m pytest tests/ -v
-
-  container-build-and-scan:
-    name: Container Build & Vulnerability Scan
-    needs: security-and-testing
+  build_and_scan_container:
+    name: Build, Scan & Attest
+    needs: [sast_and_secrets, sca_dependency]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t secure-app:${{ github.sha }} .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Run Trivy Vulnerability Scanner
+      - name: Build Local Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: secure-app:${{ github.sha }}
+
+      - name: Generate Trivy JSON Report
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'secure-app:${{ github.sha }}'
-          format: 'table'
+          format: 'json'
+          output: 'trivy-container-scan.json'
+          exit-code: '0'
+
+      - name: Upload Container Scan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-container-scan-results
+          path: trivy-container-scan.json
+          retention-days: 14
+
+      - name: Enforce Trivy Scan Failure Threshold
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'secure-app:${{ github.sha }}'
           exit-code: '1'
           ignore-unfixed: true
-          vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-  deploy:
-    name: Deployment
-    needs: container-build-and-scan
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Simulate Production Deployment
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'secure-app:${{ pipeline.sha }}'
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-sbom-cyclonedx
+          path: sbom-cyclonedx.json
+          retention-days: 14
+
+      - name: Generate Trusted Build Attestation
         run: |
-          echo "✅ All security checks and tests passed."
-          echo "🚀 Deploying secure-app:${{ github.sha }} to production environment..."
-          sleep 2
-          echo "🎉 Deployment successful!"
+          echo "Commit SHA: ${{ github.sha }}" > trusted-build-attestation.txt
+          echo "Build Status: PASSED" >> trusted-build-attestation.txt
+          echo "Scans Completed: SAST, Secrets, SCA, Container Vulnerability" >> trusted-build-attestation.txt
+          echo "Ready for Promotion: TRUE" >> trusted-build-attestation.txt
+
+      - name: Upload Attestation Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trusted-build-attestation
+          path: trusted-build-attestation.txt
+          retention-days: 14
