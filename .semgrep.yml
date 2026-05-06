@@ -1,0 +1,11 @@
+rules:
+  - id: detect-hardcoded-aws-credentials
+    pattern: $X = "AKIA..."
+    message: "Potential hardcoded AWS credential detected. Use environment variables or IAM roles."
+    languages: [python]
+    severity: ERROR
+  - id: detect-dangerous-eval
+    pattern: eval(...)
+    message: "Use of eval() is dangerous and can lead to Remote Code Execution."
+    languages: [python]
+    severity: ERROR
