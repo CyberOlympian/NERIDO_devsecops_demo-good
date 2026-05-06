@@ -1,33 +1,25 @@
-# Use a minimal, modern Python base image
-FROM python:3.12-slim-bookworm
-
-# Set environment variables to ensure secure and optimized execution
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    APP_USER=appuser \
-    APP_HOME=/home/appuser/app
+FROM python:3.11-slim-bookworm
 
 # Create a non-root user and group
-RUN groupadd -r ${APP_USER} && useradd -r -g ${APP_USER} -d /home/${APP_USER} -s /sbin/nologin ${APP_USER}
+RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Set the working directory
-WORKDIR ${APP_HOME}
+# Set working directory
+WORKDIR /app
 
-# Install dependencies as root before switching users
+# Copy and install dependencies securely
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY app/ ./app/
 
-# Change ownership of the application directory to the non-root user
-RUN chown -R ${APP_USER}:${APP_USER} ${APP_HOME}
+# Transfer ownership to the non-root user
+RUN chown -R appuser:appuser /app
 
-# Switch to the non-root user
-USER ${APP_USER}
+# Enforce running as the non-root user
+USER appuser
 
-# Expose the application port
-EXPOSE 8000
+EXPOSE 8080
 
-# Run the application securely using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "2", "app.main:app"]
+# Use array syntax for CMD to avoid shell injection vulnerabilities
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
