@@ -1,25 +1,16 @@
 import os
-from flask import Flask, jsonify
+from fastapi import FastAPI
+import uvicorn
 
-app = Flask(__name__)
+app = FastAPI(title="Secure API Service")
 
-# Security headers configuration
-@app.after_request
-def set_security_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-    return response
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({"status": "healthy", "message": "Service is operational"}), 200
-
-@app.route('/api/data', methods=['GET'])
-def get_data():
-    return jsonify({"data": "Secure information retrieved successfully."}), 200
+@app.get("/")
+def read_root():
+    # Example of securely checking an environment variable rather than hardcoding logic
+    is_production = os.environ.get("PROD_ENV", "false").lower() == "true"
+    status = "Production Mode" if is_production else "Development Mode"
+    return {"message": "Service is running securely.", "environment": status}
 
 if __name__ == "__main__":
-    # Ensure development server is only bound to localhost and debug is off by default
-    debug_mode = os.environ.get("FLASK_DEBUG", "False").lower() in ["true", "1", "t"]
-    app.run(host="127.0.0.1", port=5000, debug=debug_mode)
+    # In production, this is typically launched via the Dockerfile CMD
+    uvicorn.run(app, host="0.0.0.0", port=8080)
