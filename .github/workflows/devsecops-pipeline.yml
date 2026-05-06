@@ -101,7 +101,8 @@ jobs:
       - name: Generate CycloneDX SBOM
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'secure-app:${{ pipeline.sha }}'
+      
+          image-ref: 'secure-app:${{ github.sha }}'
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
 
